@@ -26,9 +26,10 @@ Google Apps Script로 동작하므로 별도 서버·비용 없이 Google 계정
    - `Code.gs` (기본 생성된 파일에 덮어쓰기)
    - `Content_Theory.gs` / `Content_Negotiation.gs` / `Content_Meeting.gs` (좌측 `파일 +` → `스크립트`로 추가, 확장자 `.gs`는 자동)
 3. **시간대 확인** — 좌측 `프로젝트 설정` → 시간대가 `(GMT+09:00) 서울`인지 확인 (아니면 변경).
-4. **수신 주소 지정** — 상단 함수 선택 상자에서 `setRecipient` 선택 → `실행`.
-   - 실행 전에 `Code.gs`의 `DEFAULT_CONFIG.RECIPIENT_EMAIL` 값에 회사 메일을 적어 두거나,
-   - 또는 `프로젝트 설정 → 스크립트 속성`에서 `RECIPIENT_EMAIL` = `본인@회사도메인` 을 직접 추가해도 됩니다.
+4. **수신 주소 지정** — `프로젝트 설정 → 스크립트 속성 → 스크립트 속성 추가`에서
+   `RECIPIENT_EMAIL` = `본인@회사도메인` 을 넣고 저장합니다.
+   - 편집기의 `실행` 버튼은 함수에 값을 넘기지 못하므로, 주소 설정은 스크립트 속성으로 합니다.
+   - `setRecipient`·`setSendHour`·`goToDay`는 편집기에서 인자 없이 실행해도 안전하며, 현재 설정값만 로그로 보여 줍니다.
 5. **권한 승인** — 첫 실행 시 Google 권한 화면이 뜹니다. `고급` → `...(안전하지 않음)으로 이동` → `허용`.
    (본인이 만든 스크립트라 표시되는 정상 경고입니다. 메일 발송 권한만 사용합니다.)
 6. **테스트 발송** — `sendTestEmail` 실행 → 회사 메일함 확인.
@@ -41,9 +42,10 @@ Apps Script 편집기에서 함수를 골라 `실행`하면 됩니다.
 | 함수 | 기능 |
 | --- | --- |
 | `sendTestEmail()` | 지금 바로 한 통 발송 (진도는 올라가지 않음) |
-| `setSendHour(6)` | 발송 시각 변경 (0~23시, 한국 시간) |
-| `setRecipient('me@company.com')` | 수신 주소 변경 |
-| `goToDay(15)` | 특정 Day로 진도 이동 |
+| `showStatus()` | 현재 설정·자동 발송 상태·다음 발송 내용 확인 |
+| `setSendHour(6)` | 발송 시각 변경 (0~23시). 편집기에서는 스크립트 속성 `SEND_HOUR`를 고친 뒤 인자 없이 실행 |
+| `setRecipient('me@company.com')` | 수신 주소 변경. 편집기에서는 스크립트 속성 `RECIPIENT_EMAIL`을 직접 수정 |
+| `goToDay(15)` | 특정 Day로 진도 이동. 편집기에서는 스크립트 속성 `LESSON_INDEX`를 수정 (Day 15 = `14`) |
 | `resetProgress()` | Day 1부터 다시 시작 |
 | `stopDailyLesson()` | 자동 발송 중단 (진도는 유지) |
 | `setup()` | 중단 후 다시 켜기 |
@@ -57,7 +59,7 @@ Apps Script 편집기에서 함수를 골라 `실행`하면 됩니다.
 | `SEND_HOUR` | `7` | 발송 시각 (0~23) |
 | `WEEKDAYS_ONLY` | `true` | `true`면 토·일 발송 안 함 |
 | `SUBJECT_PREFIX` | `[Daily Biz English]` | 메일 제목 앞머리 (메일 필터·라벨 자동화에 사용) |
-| `LESSON_INDEX` | `0` | 진도. 발송 성공 시 자동 +1 |
+| `LESSON_INDEX` | `0` | 진도. 발송 성공 시 자동 +1 (Day 15로 옮기려면 `14`) |
 
 > 팁: Gmail에서 `제목에 [Daily Biz English] 포함` 필터를 만들어 라벨을 붙여 두면 학습 기록이 한곳에 쌓입니다.
 > 발송 한도는 개인 Gmail 기준 하루 100통이라 여유가 충분합니다.

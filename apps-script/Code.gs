@@ -63,18 +63,38 @@ function setup() {
   return '설정 완료';
 }
 
-/** 회사 메일 주소 지정 (setup 전에 1회 실행) */
+/**
+ * 회사 메일 주소 지정.
+ * 편집기의 실행 버튼은 인자를 넘기지 못하므로, 주소 변경은
+ * [프로젝트 설정 → 스크립트 속성]의 RECIPIENT_EMAIL 값을 고치는 쪽이 편하다.
+ * 인자 없이 실행하면 현재 설정된 주소를 보여 준다.
+ */
 function setRecipient(email) {
-  var value = email || DEFAULT_CONFIG.RECIPIENT_EMAIL;
-  if (!value) throw new Error('setRecipient("you@company.com") 형태로 주소를 넣어 주세요.');
-  props_().setProperty('RECIPIENT_EMAIL', String(value).trim());
+  var value = String(email || '').trim();
+  if (!value) {
+    var current = getConfig_().RECIPIENT_EMAIL;
+    if (current) {
+      Logger.log('현재 수신 주소: %s (변경하려면 프로젝트 설정 → 스크립트 속성에서 RECIPIENT_EMAIL 값을 수정하세요.)', current);
+      return current;
+    }
+    throw new Error('수신 주소가 없습니다. 프로젝트 설정 → 스크립트 속성에서 RECIPIENT_EMAIL 값을 추가해 주세요.');
+  }
+  props_().setProperty('RECIPIENT_EMAIL', value);
   Logger.log('수신 주소: %s', value);
   return value;
 }
 
-/** 발송 시각 변경 (0~23시, 한국 시간) */
+/**
+ * 발송 시각 변경 (0~23시, 한국 시간).
+ * 인자 없이 실행하면 스크립트 속성 SEND_HOUR 값으로 트리거를 다시 건다.
+ */
 function setSendHour(hour) {
-  var h = Math.max(0, Math.min(23, parseInt(hour, 10)));
+  var h = parseInt(hour, 10);
+  if (isNaN(h)) {
+    h = getConfig_().SEND_HOUR;
+    Logger.log('인자가 없어 현재 설정값(%s시)으로 트리거를 재등록합니다. 시각을 바꾸려면 스크립트 속성의 SEND_HOUR 값을 수정한 뒤 다시 실행하세요.', h);
+  }
+  h = Math.max(0, Math.min(23, h));
   props_().setProperty('SEND_HOUR', String(h));
   installTrigger_(h);
   Logger.log('발송 시각: 매일 %s시', h);
@@ -112,12 +132,37 @@ function resetProgress() {
   Logger.log('진도를 Day 1로 초기화했습니다.');
 }
 
-/** 특정 Day로 진도 이동 (예: goToDay(15)) */
+/**
+ * 특정 Day로 진도 이동 (예: goToDay(15)).
+ * 인자 없이 실행하면 진도를 바꾸지 않고 현재 위치만 알려 준다.
+ * 진도 변경은 스크립트 속성 LESSON_INDEX 값을 고쳐도 된다 (Day 15 = 14).
+ */
 function goToDay(day) {
-  var d = Math.max(1, parseInt(day, 10) || 1);
+  var d = parseInt(day, 10);
+  if (isNaN(d)) {
+    var current = getConfig_().LESSON_INDEX + 1;
+    Logger.log('진도를 바꾸지 않았습니다. 다음 발송은 Day %s입니다. (이동하려면 스크립트 속성의 LESSON_INDEX 값을 수정하세요. Day 15 = 14)', current);
+    return current;
+  }
+  d = Math.max(1, d);
   props_().setProperty('LESSON_INDEX', String(d - 1));
   Logger.log('진도를 Day %s로 옮겼습니다.', d);
   return d;
+}
+
+/** 현재 설정과 다음 발송 내용을 로그로 확인한다. 인자가 필요 없어 안전하다. */
+function showStatus() {
+  var cfg = getConfig_();
+  var lesson = buildLesson_(cfg.LESSON_INDEX);
+  var triggers = ScriptApp.getProjectTriggers().filter(function (t) {
+    return t.getHandlerFunction() === 'sendDailyLesson';
+  });
+  Logger.log('수신 주소   : %s', cfg.RECIPIENT_EMAIL || '(미설정)');
+  Logger.log('참조        : %s', cfg.CC_EMAIL || '(없음)');
+  Logger.log('발송 시각   : 매일 %s시 (%s)', cfg.SEND_HOUR, cfg.WEEKDAYS_ONLY ? '주말 제외' : '주말 포함');
+  Logger.log('자동 발송   : %s', triggers.length ? '켜짐' : '꺼짐 — setup을 실행하세요.');
+  Logger.log('다음 발송   : Day %s — %s', lesson.day,
+    lesson.blocks.map(function (b) { return b.entry.focus; }).join(' · '));
 }
 
 /* ------------------------------------------------------------------ */
