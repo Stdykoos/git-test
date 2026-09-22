@@ -39,7 +39,31 @@ var QUIZ_TYPE_LABEL = {
 /* 발송                                                                */
 /* ------------------------------------------------------------------ */
 
-/** 트리거가 매일 저녁 호출한다. 3일치가 쌓였을 때만 실제로 발송한다. */
+/** 오늘이 복습 퀴즈 날인지 (학습 3일치를 마쳤는지) */
+function isQuizDue_(cfg) {
+  return cfg.QUIZ_ENABLED && (cfg.LESSON_INDEX - cfg.QUIZ_LAST_INDEX) >= cfg.QUIZ_EVERY;
+}
+
+/** 이미 출제한 문항 목록 */
+function loadAsked_() {
+  var raw = props_().getProperty('QUIZ_ASKED') || '';
+  return raw ? raw.split(',') : [];
+}
+
+/**
+ * 출제 기록 저장. 스크립트 속성 한 칸은 9KB까지라 오래된 것부터 버린다.
+ * 버려진 문항은 아주 먼 훗날 다시 나올 수 있지만, 그때쯤이면 복습이 필요한 시점이다.
+ */
+function saveAsked_(list) {
+  var text = list.join(',');
+  while (text.length > 7000 && list.length > 1) {
+    list.shift();
+    text = list.join(',');
+  }
+  props_().setProperty('QUIZ_ASKED', text);
+}
+
+/** 트리거가 매일 저녁 호출한다. 퀴즈 날에만 실제로 발송한다. */
 function sendQuizEmail() {
   var cfg = getConfig_();
   if (!cfg.QUIZ_ENABLED) {
@@ -56,35 +80,38 @@ function sendQuizEmail() {
       return;
     }
   }
-
-  var done = cfg.LESSON_INDEX;          // 지금까지 발송한 학습 메일 수
-  var last = cfg.QUIZ_LAST_INDEX;       // 마지막으로 퀴즈를 낸 지점
-
-  // 3일치를 배우고 "그다음 날"에 보낸다. 즉 Day 4에 Day 1~3 퀴즈가 나간다.
-  if (done - last <= cfg.QUIZ_EVERY) {
-    Logger.log('아직 퀴즈 차례가 아닙니다. 학습 %s일 완료 / %s일치가 쌓인 다음 날 발송합니다.',
-      done - last, cfg.QUIZ_EVERY);
+  if (!isQuizDue_(cfg)) {
+    Logger.log('오늘은 퀴즈 날이 아닙니다. 학습 %s일 완료 / %s일마다 출제합니다.',
+      cfg.LESSON_INDEX - cfg.QUIZ_LAST_INDEX, cfg.QUIZ_EVERY);
     return;
   }
 
-  deliverQuiz_(cfg, last, cfg.QUIZ_EVERY, now);
-  props_().setProperty('QUIZ_LAST_INDEX', String(last + cfg.QUIZ_EVERY));
-  Logger.log('Day %s~%s 복습 퀴즈를 발송했습니다.', last + 1, last + cfg.QUIZ_EVERY);
+  var result = deliverQuiz_(cfg, cfg.LESSON_INDEX, cfg.DAY_NUMBER, now, loadAsked_());
+  props_().setProperty('QUIZ_LAST_INDEX', String(cfg.LESSON_INDEX));
+  saveAsked_(loadAsked_().concat(result.ids));
+  Logger.log('Day 1~%s 누적 복습 퀴즈를 발송했습니다 (신규 문항 %s개, 누적 출제 %s개).',
+    result.toDay, result.ids.length, loadAsked_().length);
 }
 
-/** 테스트 발송: 최근 3일치로 퀴즈를 지금 보낸다 (진도·퀴즈 기록은 바뀌지 않음). */
+/** 테스트 발송: 지금 한 통 보낸다. 진도와 출제 기록은 바뀌지 않는다. */
 function sendTestQuiz() {
   var cfg = getConfig_();
   if (!cfg.RECIPIENT_EMAIL) throw new Error('RECIPIENT_EMAIL이 설정되어 있지 않습니다.');
-  var days = cfg.QUIZ_EVERY;
-  var from = Math.max(0, cfg.LESSON_INDEX - days);
-  deliverQuiz_(cfg, from, days, new Date());
-  Logger.log('테스트 퀴즈(Day %s~%s)를 %s 로 보냈습니다.', from + 1, from + days, cfg.RECIPIENT_EMAIL);
+  var lessons = Math.max(1, cfg.LESSON_INDEX);
+  var day = Math.max(lessons + 1, cfg.DAY_NUMBER);
+  deliverQuiz_(cfg, lessons, day, new Date(), loadAsked_());
+  Logger.log('테스트 퀴즈(Day 1~%s)를 %s 로 보냈습니다. 출제 기록은 변경하지 않았습니다.',
+    day - 1, cfg.RECIPIENT_EMAIL);
 }
 
-function deliverQuiz_(cfg, fromIndex, days, now) {
-  var quiz = buildQuiz_(fromIndex, days);
-  var title = '복습 퀴즈 Day ' + quiz.fromDay + '~' + quiz.toDay +
+/**
+ * @param lessonCount 지금까지 학습한 회차 수 (출제 범위: 1회차 ~ 이 숫자)
+ * @param dayNumber   오늘이 며칠째인지 (제목 표기용)
+ * @param asked       이미 출제한 문항 id 목록
+ */
+function deliverQuiz_(cfg, lessonCount, dayNumber, now, asked) {
+  var quiz = buildQuiz_(lessonCount, dayNumber, asked);
+  var title = '복습 퀴즈 Day 1~' + quiz.toDay +
     ' (' + Utilities.formatDate(now, timeZone_(), 'yyyy-MM-dd') + ')';
 
   // 문서 생성은 실패해도 메일 발송 자체를 막지 않는다.
@@ -97,12 +124,13 @@ function deliverQuiz_(cfg, fromIndex, days, now) {
     }
   }
 
-  var subject = cfg.SUBJECT_PREFIX + ' 복습 퀴즈 — Day ' + quiz.fromDay + '~' + quiz.toDay +
-    ' (' + quiz.questions.length + '문항)';
+  var subject = cfg.SUBJECT_PREFIX + ' 복습 퀴즈 — Day 1~' + quiz.toDay +
+    ' 누적 (' + quiz.questions.length + '문항)';
   var options = { htmlBody: renderQuizHtml_(quiz, now, docInfo), name: cfg.SENDER_NAME };
   if (cfg.CC_EMAIL) options.cc = cfg.CC_EMAIL;
   if (docInfo && docInfo.docx) options.attachments = [docInfo.docx];
   GmailApp.sendEmail(cfg.RECIPIENT_EMAIL, subject, renderQuizText_(quiz, now, docInfo), options);
+  return quiz;
 }
 
 /* ------------------------------------------------------------------ */
@@ -116,6 +144,19 @@ function shuffle_(arr) {
     var t = a[i]; a[i] = a[j]; a[j] = t;
   }
   return a;
+}
+
+/**
+ * 정답 텍스트를 문항 id로 바꾼다 (djb2 해시 → 36진수).
+ * 대소문자·구두점 차이는 무시하므로 같은 정답이면 같은 id가 나온다.
+ */
+function answerId_(text) {
+  var t = String(text).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  var h = 5381;
+  for (var i = 0; i < t.length; i++) {
+    h = (((h * 33) ^ t.charCodeAt(i)) >>> 0);
+  }
+  return h.toString(36);
 }
 
 /** 'MOQ (minimum order quantity)' → 'MOQ' 처럼 괄호 앞부분만 정답으로 쓴다. */
@@ -139,89 +180,138 @@ function makeCloze_(example, term) {
   return example.substring(0, pos) + '______' + example.substring(pos + answer.length);
 }
 
-/** fromIndex(0부터)부터 days일치 학습 내용에서 랜덤 문항을 만든다. */
-function buildQuiz_(fromIndex, days) {
-  var wordPool = [];
-  var sentencePool = [];
-  var dayNumbers = [];
+/**
+ * 1회차부터 lessonCount회차까지 배운 내용 전체에서 랜덤 문항을 만든다.
+ * asked에 들어 있는 문항은 다시 내지 않는다.
+ */
+function buildQuiz_(lessonCount, dayNumber, asked) {
+  var askedMap = {};
+  var askedList = asked || [];
+  for (var a = 0; a < askedList.length; a++) askedMap[askedList[a]] = true;
 
-  for (var d = 0; d < days; d++) {
-    var lesson = buildLesson_(fromIndex + d);
-    dayNumbers.push(lesson.day);
+  var pools = collectPools_(lessonCount, askedMap);
+
+  // 낼 수 있는 문항이 모자라면 기록을 비우고 처음부터 다시 낸다 (새 회독).
+  var needed = QUIZ_PLAN.reduce(function (n, p) { return n + p.count; }, 0);
+  var recycled = false;
+  if (pools.words.length + pools.sentences.length < needed) {
+    pools = collectPools_(lessonCount, {});
+    recycled = true;
+  }
+
+  var questions = pickQuestions_(pools, needed);
+  return {
+    fromDay: 1,
+    toDay: Math.max(1, (dayNumber || lessonCount + 1) - 1),
+    lessonCount: lessonCount,
+    recycled: recycled,
+    questions: shuffle_(questions),
+    ids: questions.map(function (q) { return q.id; })
+  };
+}
+
+/** 학습 범위 전체에서 아직 출제하지 않은 단어·문장을 모은다. */
+function collectPools_(lessonCount, askedMap) {
+  var words = [];
+  var sentences = [];
+  var seen = {};
+  for (var i = 0; i < lessonCount; i++) {
+    var lesson = buildLesson_(i);
     for (var b = 0; b < lesson.blocks.length; b++) {
       var block = lesson.blocks[b];
       var entry = block.entry;
+      // id는 "정답 텍스트"로 만든다. 그래야
+      //   · 라이브러리가 한 바퀴 돌아 같은 내용이 다시 와도
+      //   · 다른 카테고리에 같은 표현이 들어 있어도
+      //   · 같은 단어를 단어 영작과 빈칸 채우기로 각각 내려 해도
+      // 모두 같은 문항으로 보고 다시 내지 않는다.
       for (var w = 0; w < entry.words.length; w++) {
-        wordPool.push({ day: lesson.day, label: block.label, word: entry.words[w] });
+        var wid = answerId_(quizTerm_(entry.words[w].term));
+        if (!askedMap[wid] && !seen[wid]) {
+          seen[wid] = true;
+          words.push({ id: wid, day: i + 1, label: block.label, word: entry.words[w] });
+        }
       }
       for (var s = 0; s < entry.sentences.length; s++) {
-        sentencePool.push({ day: lesson.day, label: block.label, focus: entry.focus, sentence: entry.sentences[s] });
+        var sid = answerId_(entry.sentences[s].en);
+        if (!askedMap[sid] && !seen[sid]) {
+          seen[sid] = true;
+          sentences.push({ id: sid, day: i + 1, label: block.label, focus: entry.focus, sentence: entry.sentences[s] });
+        }
       }
     }
   }
+  return { words: shuffle_(words), sentences: shuffle_(sentences) };
+}
 
-  var words = shuffle_(wordPool);
-  var sentences = shuffle_(sentencePool);
+/** 유형별 계획대로 뽑되, 한 유형이 모자라면 남은 재료로 채운다. */
+function pickQuestions_(pools, needed) {
   var used = {};
   var questions = [];
+
+  function takeWord(item) {
+    used[item.id] = true;
+    return {
+      id: item.id, type: 'word', day: item.day, label: item.label,
+      prompt: item.word.ko, hint: item.word.def,
+      blank: quizHint_(item.word.term), answer: quizTerm_(item.word.term)
+    };
+  }
+
+  function takeCloze(item) {
+    var text = makeCloze_(item.word.ex, item.word.term);
+    if (!text) return null;
+    used[item.id] = true;
+    return {
+      id: item.id, type: 'cloze', day: item.day, label: item.label,
+      prompt: text, hint: item.word.ko + ' — ' + item.word.def,
+      answer: quizTerm_(item.word.term)
+    };
+  }
+
+  function takeSentence(item) {
+    used[item.id] = true;
+    return {
+      id: item.id, type: 'sentence', day: item.day, label: item.label,
+      prompt: item.sentence.ko, hint: item.sentence.use || item.focus,
+      answer: item.sentence.en
+    };
+  }
 
   for (var p = 0; p < QUIZ_PLAN.length; p++) {
     var plan = QUIZ_PLAN[p];
     var picked = 0;
-
-    if (plan.type === 'word') {
-      for (var i = 0; i < words.length && picked < plan.count; i++) {
-        if (used[words[i].word.term]) continue;
-        used[words[i].word.term] = true;
+    if (plan.type === 'sentence') {
+      for (var i = 0; i < pools.sentences.length && picked < plan.count; i++) {
+        if (used[pools.sentences[i].id]) continue;
+        questions.push(takeSentence(pools.sentences[i]));
         picked++;
-        questions.push({
-          type: 'word',
-          day: words[i].day,
-          label: words[i].label,
-          prompt: words[i].word.ko,
-          hint: words[i].word.def,
-          blank: quizHint_(words[i].word.term),
-          answer: quizTerm_(words[i].word.term)
-        });
-      }
-    } else if (plan.type === 'cloze') {
-      for (var j = 0; j < words.length && picked < plan.count; j++) {
-        var cand = words[j];
-        if (used[cand.word.term] || !cand.word.ex) continue;
-        var text = makeCloze_(cand.word.ex, cand.word.term);
-        if (!text) continue;
-        used[cand.word.term] = true;
-        picked++;
-        questions.push({
-          type: 'cloze',
-          day: cand.day,
-          label: cand.label,
-          prompt: text,
-          hint: cand.word.ko + ' — ' + cand.word.def,
-          answer: quizTerm_(cand.word.term)
-        });
       }
     } else {
-      for (var k = 0; k < sentences.length && picked < plan.count; k++) {
-        var item = sentences[k];
+      for (var j = 0; j < pools.words.length && picked < plan.count; j++) {
+        var item = pools.words[j];
+        if (used[item.id]) continue;
+        if (plan.type === 'cloze') {
+          if (!item.word.ex) continue;
+          var q = takeCloze(item);
+          if (!q) continue;
+          questions.push(q);
+        } else {
+          questions.push(takeWord(item));
+        }
         picked++;
-        questions.push({
-          type: 'sentence',
-          day: item.day,
-          label: item.label,
-          prompt: item.sentence.ko,
-          hint: item.sentence.use || item.focus,
-          answer: item.sentence.en
-        });
       }
     }
   }
 
-  return {
-    fromDay: Math.min.apply(null, dayNumbers),
-    toDay: Math.max.apply(null, dayNumbers),
-    questions: shuffle_(questions)
-  };
+  // 모자란 만큼 남은 재료로 채운다.
+  for (var k = 0; questions.length < needed && k < pools.words.length; k++) {
+    if (!used[pools.words[k].id]) questions.push(takeWord(pools.words[k]));
+  }
+  for (var m = 0; questions.length < needed && m < pools.sentences.length; m++) {
+    if (!used[pools.sentences[m].id]) questions.push(takeSentence(pools.sentences[m]));
+  }
+  return questions;
 }
 
 /* ------------------------------------------------------------------ */
@@ -235,9 +325,12 @@ function renderQuizHtml_(quiz, now, docInfo) {
 
   h.push('<div style="background:#4c1d95;border-radius:14px;padding:22px 24px;color:#ffffff;">');
   h.push('<div style="font-size:12px;letter-spacing:.14em;color:#c4b5fd;">REVIEW QUIZ</div>');
-  h.push('<div style="font-size:24px;font-weight:700;margin-top:6px;">Day ' + quiz.fromDay + '~' + quiz.toDay + ' 복습</div>');
+  h.push('<div style="font-size:24px;font-weight:700;margin-top:6px;">Day 1~' + quiz.toDay + ' 누적 복습</div>');
   h.push('<div style="font-size:13px;color:#ddd6fe;margin-top:4px;">' + esc_(formatDate_(now)) +
-    ' · ' + quiz.questions.length + '문항 · 정답은 맨 아래</div>');
+    ' · ' + quiz.questions.length + '문항 · 지금까지 배운 ' + quiz.lessonCount + '회차 전체에서 출제 · 정답은 맨 아래</div>');
+  if (quiz.recycled) {
+    h.push('<div style="font-size:12px;color:#c4b5fd;margin-top:6px;">새 문항이 소진되어 이번 회차부터 다시 출제합니다.</div>');
+  }
   h.push('</div>');
 
   // 푸는 방법
@@ -280,12 +373,12 @@ function renderQuizHtml_(quiz, now, docInfo) {
     var q = quiz.questions[a];
     h.push('<div style="font-size:13.5px;color:#0f172a;line-height:1.7;margin-bottom:8px;">' +
       '<b style="color:#64748b;">' + (a + 1) + '.</b> ' + esc_(q.answer) +
-      ' <span style="color:#94a3b8;font-size:12px;">(Day ' + q.day + ')</span></div>');
+      ' <span style="color:#94a3b8;font-size:12px;">(' + q.day + '회차)</span></div>');
   }
   h.push('</div>');
 
   h.push('<div style="text-align:center;color:#94a3b8;font-size:12px;margin-top:20px;line-height:1.7;">');
-  h.push('틀린 문항은 해당 Day 메일을 다시 열어 문장째로 소리 내어 읽어 보세요.');
+  h.push('틀린 문항은 해당 회차의 학습 메일을 다시 열어 문장째로 소리 내어 읽어 보세요.');
   h.push('</div>');
 
   h.push('</div></div>');
@@ -297,7 +390,7 @@ function renderQuestionHtml_(q, n) {
   var h = [];
   h.push('<div style="padding:14px 0;border-bottom:1px solid #f1f5f9;">');
   h.push('<div style="font-size:11px;color:' + meta.color + ';font-weight:700;letter-spacing:.06em;">' +
-    n + '. ' + meta.badge + ' <span style="color:#cbd5e1;font-weight:500;">· ' + esc_(q.label) + ' · Day ' + q.day + '</span></div>');
+    n + '. ' + meta.badge + ' <span style="color:#cbd5e1;font-weight:500;">· ' + esc_(q.label) + ' · ' + q.day + '회차</span></div>');
   h.push('<div style="font-size:11.5px;color:#94a3b8;margin-top:3px;line-height:1.5;">' + esc_(QUIZ_TYPE_HOWTO[q.type]) + '</div>');
   h.push('<div style="font-size:15px;font-weight:600;color:#111827;line-height:1.6;margin-top:6px;">' + esc_(q.prompt) + '</div>');
   if (q.blank) {
@@ -312,7 +405,7 @@ function renderQuestionHtml_(q, n) {
 
 function renderQuizText_(quiz, now, docInfo) {
   var t = [];
-  t.push('복습 퀴즈 — Day ' + quiz.fromDay + '~' + quiz.toDay);
+  t.push('복습 퀴즈 — Day 1~' + quiz.toDay + ' 누적 (' + quiz.lessonCount + '회차 전체에서 출제)');
   t.push(formatDate_(now));
   t.push('');
   t.push('[푸는 방법]');
@@ -331,7 +424,7 @@ function renderQuizText_(quiz, now, docInfo) {
   t.push('');
   t.push('--- 정답 ---');
   for (var a = 0; a < quiz.questions.length; a++) {
-    t.push((a + 1) + '. ' + quiz.questions[a].answer + ' (Day ' + quiz.questions[a].day + ')');
+    t.push((a + 1) + '. ' + quiz.questions[a].answer + ' (' + quiz.questions[a].day + '회차)');
   }
   return t.join('\n');
 }

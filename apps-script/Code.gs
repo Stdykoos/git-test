@@ -14,13 +14,15 @@ var DEFAULT_CONFIG = {
   WEEKDAYS_ONLY: 'true',        // 'true'면 토/일 발송 안 함
   SENDER_NAME: 'Daily Business English',
   SUBJECT_PREFIX: '[Daily Biz English]',
-  LESSON_INDEX: '0',            // 진도(자동 관리). 수동으로 건드리지 않아도 됨.
+  LESSON_INDEX: '0',            // 학습 진도(자동 관리). 수동으로 건드리지 않아도 됨.
+  DAY_NUMBER: '0',              // 며칠째인지(자동 관리). 퀴즈 날도 하루로 센다.
   QUIZ_ENABLED: 'true',         // 'true'면 N일마다 복습 퀴즈 발송
   QUIZ_EVERY: '3',              // 몇 일치를 모아 퀴즈로 낼지
   QUIZ_HOUR: '19',              // 퀴즈 발송 시각 (0~23)
   QUIZ_DOC: 'true',             // 'true'면 답을 쓸 수 있는 구글 문서를 만들어 링크 첨부
   QUIZ_ATTACH_DOCX: 'true',     // 'true'면 같은 내용을 Word(.docx) 파일로 첨부
-  QUIZ_LAST_INDEX: '0'          // 마지막 퀴즈 지점(자동 관리)
+  QUIZ_LAST_INDEX: '0',         // 마지막 퀴즈 시점의 학습 진도(자동 관리)
+  QUIZ_ASKED: ''                // 이미 출제한 문항 목록(자동 관리)
 };
 
 var CATEGORIES = [
@@ -46,6 +48,8 @@ function getConfig_() {
   cfg.SEND_HOUR = Math.max(0, Math.min(23, parseInt(cfg.SEND_HOUR, 10) || 7));
   cfg.WEEKDAYS_ONLY = String(cfg.WEEKDAYS_ONLY).toLowerCase() === 'true';
   cfg.LESSON_INDEX = Math.max(0, parseInt(cfg.LESSON_INDEX, 10) || 0);
+  // 기존 사용자 이관: 일차가 없으면 학습 진도를 그대로 일차로 삼는다.
+  cfg.DAY_NUMBER = Math.max(cfg.LESSON_INDEX, parseInt(cfg.DAY_NUMBER, 10) || 0);
   cfg.QUIZ_ENABLED = String(cfg.QUIZ_ENABLED).toLowerCase() === 'true';
   cfg.QUIZ_EVERY = Math.max(1, parseInt(cfg.QUIZ_EVERY, 10) || 3);
   cfg.QUIZ_HOUR = Math.max(0, Math.min(23, parseInt(cfg.QUIZ_HOUR, 10) || 19));
@@ -157,8 +161,8 @@ function stopDailyLesson() {
 
 /** 진도 초기화 (Day 1부터 다시) */
 function resetProgress() {
-  props_().setProperties({ LESSON_INDEX: '0', QUIZ_LAST_INDEX: '0' });
-  Logger.log('진도를 Day 1로 초기화했습니다. (복습 퀴즈 기록도 함께 초기화)');
+  props_().setProperties({ LESSON_INDEX: '0', DAY_NUMBER: '0', QUIZ_LAST_INDEX: '0', QUIZ_ASKED: '' });
+  Logger.log('진도를 Day 1로 초기화했습니다. (일차·퀴즈 출제 기록도 함께 초기화)');
 }
 
 /**
@@ -174,7 +178,7 @@ function goToDay(day) {
     return current;
   }
   d = Math.max(1, d);
-  props_().setProperties({ LESSON_INDEX: String(d - 1), QUIZ_LAST_INDEX: String(d - 1) });
+  props_().setProperties({ LESSON_INDEX: String(d - 1), DAY_NUMBER: String(d - 1), QUIZ_LAST_INDEX: String(d - 1) });
   Logger.log('진도를 Day %s로 옮겼습니다. (복습 퀴즈 기준점도 함께 이동)', d);
   return d;
 }
@@ -182,22 +186,28 @@ function goToDay(day) {
 /** 현재 설정과 다음 발송 내용을 로그로 확인한다. 인자가 필요 없어 안전하다. */
 function showStatus() {
   var cfg = getConfig_();
-  var lesson = buildLesson_(cfg.LESSON_INDEX);
+  var lesson = buildLesson_(cfg.LESSON_INDEX, cfg.DAY_NUMBER + 1);
   var handlers = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
   var untilQuiz = cfg.QUIZ_EVERY - (cfg.LESSON_INDEX - cfg.QUIZ_LAST_INDEX);
+  var askedCount = (props_().getProperty('QUIZ_ASKED') || '').split(',').filter(String).length;
   Logger.log('수신 주소   : %s', cfg.RECIPIENT_EMAIL || '(미설정)');
   Logger.log('참조        : %s', cfg.CC_EMAIL || '(없음)');
   Logger.log('발송 시각   : 매일 %s시 (%s)', cfg.SEND_HOUR, cfg.WEEKDAYS_ONLY ? '주말 제외' : '주말 포함');
   Logger.log('자동 발송   : %s', handlers.indexOf('sendDailyLesson') >= 0 ? '켜짐' : '꺼짐 — setup을 실행하세요.');
-  Logger.log('다음 발송   : Day %s — %s', lesson.day,
-    lesson.blocks.map(function (b) { return b.entry.focus; }).join(' · '));
+  if (untilQuiz <= 0) {
+    Logger.log('다음 발송   : Day %s — 복습 퀴즈 (학습 메일 없음)', lesson.day);
+  } else {
+    Logger.log('다음 발송   : Day %s (%s회차) — %s', lesson.day, lesson.lesson,
+      lesson.blocks.map(function (b) { return b.entry.focus; }).join(' · '));
+  }
   if (!cfg.QUIZ_ENABLED) {
     Logger.log('복습 퀴즈   : 꺼짐 (QUIZ_ENABLED)');
   } else {
-    Logger.log('복습 퀴즈   : %s · 저녁 %s시 · %s일마다 · %s',
+    Logger.log('복습 퀴즈   : %s · 저녁 %s시 · 학습 %s일마다 · %s',
       handlers.indexOf('sendQuizEmail') >= 0 ? '켜짐' : '트리거 없음 — setup을 실행하세요.',
       cfg.QUIZ_HOUR, cfg.QUIZ_EVERY,
-      untilQuiz >= 0 ? '학습 ' + (untilQuiz + 1) + '일 더 진행하면 발송' : '다음 퀴즈 시각에 출제');
+      untilQuiz > 0 ? '학습 ' + untilQuiz + '일 더 하면 출제' : '오늘 저녁 출제');
+    Logger.log('출제 기록   : 지금까지 %s문항 출제됨 (같은 문항은 다시 나오지 않음)', askedCount);
   }
 }
 
@@ -219,22 +229,31 @@ function sendDailyLesson() {
     }
   }
 
+  var day = cfg.DAY_NUMBER + 1;
+  props_().setProperty('DAY_NUMBER', String(day));
+
+  // 학습 3일치를 마친 날은 복습 퀴즈만 보낸다 (새 학습 없음).
+  if (isQuizDue_(cfg)) {
+    Logger.log('Day %s는 복습 퀴즈 날입니다. 학습 메일은 보내지 않습니다.', day);
+    return;
+  }
+
   var index = cfg.LESSON_INDEX;
-  deliver_(cfg, index, now);
+  deliver_(cfg, index, now, day);
   props_().setProperty('LESSON_INDEX', String(index + 1));
-  Logger.log('Day %s 발송 완료', index + 1);
+  Logger.log('Day %s 학습 메일 발송 완료 (%s회차)', day, index + 1);
 }
 
 /** 테스트 발송: 지금 바로 보내되 진도는 올리지 않는다. */
 function sendTestEmail() {
   var cfg = getConfig_();
   if (!cfg.RECIPIENT_EMAIL) throw new Error('RECIPIENT_EMAIL이 설정되어 있지 않습니다.');
-  deliver_(cfg, cfg.LESSON_INDEX, new Date());
+  deliver_(cfg, cfg.LESSON_INDEX, new Date(), cfg.DAY_NUMBER + 1);
   Logger.log('테스트 메일을 %s 로 보냈습니다.', cfg.RECIPIENT_EMAIL);
 }
 
-function deliver_(cfg, index, now) {
-  var lesson = buildLesson_(index);
+function deliver_(cfg, index, now, dayNumber) {
+  var lesson = buildLesson_(index, dayNumber);
   var options = {
     htmlBody: renderHtml_(lesson, now),
     name: cfg.SENDER_NAME
@@ -263,23 +282,26 @@ function library_() {
  * index(0부터)에 해당하는 하루치 학습을 조립한다.
  * 라이브러리를 다 돌면 자동으로 2회독, 3회독으로 순환한다.
  */
-function buildLesson_(index) {
+function buildLesson_(index, dayNumber) {
   var lib = library_();
   var blocks = [];
   for (var i = 0; i < CATEGORIES.length; i++) {
     var cat = CATEGORIES[i];
     var items = lib[cat.key];
+    var entryIndex = index % items.length;
     blocks.push({
       key: cat.key,
       label: cat.label,
       badge: cat.badge,
       color: cat.color,
-      entry: items[index % items.length]
+      entryIndex: entryIndex,   // 라이브러리 안에서의 위치. 회독이 바뀌어도 같은 내용이면 같은 값.
+      entry: items[entryIndex]
     });
   }
   var shortest = Math.min(lib.theory.length, lib.negotiation.length, lib.meeting.length);
   return {
-    day: index + 1,
+    day: dayNumber || index + 1,
+    lesson: index + 1,
     round: Math.floor(index / shortest) + 1,
     blocks: blocks,
     review: index > 0 ? buildReview_(lib, index - 1) : null
@@ -296,13 +318,17 @@ function buildReview_(lib, prevIndex) {
       out.push({ term: entry.words[j].term, ko: entry.words[j].ko });
     }
   }
-  return { day: prevIndex + 1, words: out };
+  return { words: out };
 }
 
 function buildSubject_(cfg, lesson) {
   var focuses = lesson.blocks.map(function (b) { return b.entry.focus; }).join(' · ');
   var round = lesson.round > 1 ? ' (' + lesson.round + '회독)' : '';
   return cfg.SUBJECT_PREFIX + ' Day ' + lesson.day + round + ' — ' + focuses;
+}
+
+function lessonHeadline_(lesson) {
+  return 'Day ' + lesson.day + (lesson.lesson !== lesson.day ? ' · ' + lesson.lesson + '회차' : '');
 }
 
 /* ------------------------------------------------------------------ */
@@ -326,7 +352,7 @@ function renderHtml_(lesson, now) {
   // Header
   h.push('<div style="background:#111827;border-radius:14px;padding:22px 24px;color:#ffffff;">');
   h.push('<div style="font-size:12px;letter-spacing:.14em;color:#9ca3af;">DAILY BUSINESS ENGLISH</div>');
-  h.push('<div style="font-size:24px;font-weight:700;margin-top:6px;">Day ' + lesson.day +
+  h.push('<div style="font-size:24px;font-weight:700;margin-top:6px;">' + esc_(lessonHeadline_(lesson)) +
     (lesson.round > 1 ? ' <span style="font-size:13px;font-weight:500;color:#9ca3af;">· ' + lesson.round + '회독</span>' : '') + '</div>');
   h.push('<div style="font-size:13px;color:#d1d5db;margin-top:4px;">' + esc_(formatDate_(now)) + ' · 문장 6개 + 단어 6개 · 5분</div>');
   h.push('</div>');
@@ -339,7 +365,7 @@ function renderHtml_(lesson, now) {
   // Review
   if (lesson.review && lesson.review.words.length) {
     h.push('<div style="background:#ffffff;border:1px dashed #cbd5e1;border-radius:14px;padding:18px 20px;margin-top:16px;">');
-    h.push('<div style="font-size:13px;font-weight:700;color:#475569;">🔁 어제(Day ' + lesson.review.day + ') 복습 — 영어로 말해 보기</div>');
+    h.push('<div style="font-size:13px;font-weight:700;color:#475569;">🔁 지난 학습 복습 — 영어로 말해 보기</div>');
     h.push('<div style="font-size:14px;color:#334155;line-height:1.9;margin-top:8px;">');
     for (var r = 0; r < lesson.review.words.length; r++) {
       h.push('<div>· ' + esc_(lesson.review.words[r].ko) + '　<span style="color:#cbd5e1;">→ ' + esc_(lesson.review.words[r].term) + '</span></div>');
@@ -411,7 +437,7 @@ function renderBlockHtml_(block, n) {
 
 function renderText_(lesson, now) {
   var t = [];
-  t.push('DAILY BUSINESS ENGLISH — Day ' + lesson.day + (lesson.round > 1 ? ' (' + lesson.round + '회독)' : ''));
+  t.push('DAILY BUSINESS ENGLISH — ' + lessonHeadline_(lesson) + (lesson.round > 1 ? ' (' + lesson.round + '회독)' : ''));
   t.push(formatDate_(now));
   t.push('');
   for (var i = 0; i < lesson.blocks.length; i++) {
@@ -436,7 +462,7 @@ function renderText_(lesson, now) {
     t.push('');
   }
   if (lesson.review && lesson.review.words.length) {
-    t.push('[복습] Day ' + lesson.review.day);
+    t.push('[복습] 지난 학습');
     for (var r = 0; r < lesson.review.words.length; r++) {
       t.push('  · ' + lesson.review.words[r].ko + ' → ' + lesson.review.words[r].term);
     }

@@ -75,8 +75,16 @@ Object.keys(lib).forEach((key) => {
 });
 
 /* --------------------------- 미리보기 --------------------------- */
+// 며칠째인지 → 몇 회차 학습인지 (4일 주기: 3일 학습 + 1일 퀴즈)
 const day = Math.max(1, parseInt(process.argv[2], 10) || 1);
-const lesson = sandbox.buildLesson_(day - 1);
+let lessonIdx = 0;
+let quizAt = 0;
+for (let d = 1; d < day; d++) {
+  if (lessonIdx - quizAt >= 3) quizAt = lessonIdx;
+  else lessonIdx++;
+}
+const isQuizDay = lessonIdx - quizAt >= 3;
+const lesson = sandbox.buildLesson_(lessonIdx, day);
 const html = sandbox.renderHtml_(lesson, new Date());
 const cfg = { SUBJECT_PREFIX: sandbox.DEFAULT_CONFIG.SUBJECT_PREFIX };
 const out = path.join(ROOT, 'preview.html');
@@ -97,7 +105,7 @@ Object.keys(lib).forEach((k) => {
 });
 
 // 퀴즈 문서 구조 검증
-const specQuiz = sandbox.buildQuiz_(0, 3);
+const specQuiz = sandbox.buildQuiz_(3, 4, []);
 const spec = sandbox.buildQuizDocSpec_(specQuiz, '복습 퀴즈 Day 1~3');
 const boxes = spec.filter((x) => x.kind === 'answerbox').length;
 if (boxes !== specQuiz.questions.length) fail(`문서: 답 칸 ${boxes}개 (문항 ${specQuiz.questions.length}개와 불일치)`);
@@ -105,46 +113,50 @@ if (spec.filter((x) => x.kind === 'pagebreak').length !== 1) fail('문서: 정�
 if (!spec.some((x) => x.kind === 'h2' && x.text === '푸는 방법')) fail('문서: 지시문 섹션 누락');
 if (!spec.some((x) => x.kind === 'h2' && x.text === '정답')) fail('문서: 정답 섹션 누락');
 specQuiz.questions.forEach((q, i) => {
-  if (!spec.some((x) => x.text === `${i + 1}. ${q.answer}  (Day ${q.day})`)) fail(`문서: ${i + 1}번 정답 누락`);
+  if (!spec.some((x) => x.text === `${i + 1}. ${q.answer}  (${q.day}회차)`)) fail(`문서: ${i + 1}번 정답 누락`);
 });
 console.log(`  문서         ${spec.length}개 블록 · 답 칸 ${boxes}개 · 정답 페이지 분리`);
 
-// 발송 일정 시뮬레이션: 3일 학습 → 그다음 날 퀴즈
-const every = 3;
-let last = 0;
+// 발송 일정 + 중복 없는 누적 출제 시뮬레이션 (주말 무시, 60일)
+const EVERY = 3;
+let lessonIndex = 0;   // 학습 회차
+let lastQuizAt = 0;    // 마지막 퀴즈 시점의 학습 회차
+let askedAll = [];
 const fired = [];
-for (let lessonDay = 1; lessonDay <= 12; lessonDay++) {
-  const done = lessonDay;            // 그날 아침 학습 메일 발송 후
-  if (done - last > every) {         // 저녁 퀴즈 판정
-    fired.push(`Day ${lessonDay}에 Day ${last + 1}~${last + every} 출제`);
-    last += every;
+let dupCount = 0;
+let recycledAt = null;
+for (let dayNo = 1; dayNo <= 60; dayNo++) {
+  const due = lessonIndex - lastQuizAt >= EVERY;
+  if (due) {
+    const q = sandbox.buildQuiz_(lessonIndex, dayNo, askedAll);
+    if (q.questions.length !== 10) fail(`Day ${dayNo}: 문항 ${q.questions.length}개`);
+    const ids = new Set(q.ids);
+    if (ids.size !== q.ids.length) fail(`Day ${dayNo}: 한 회차 안에서 문항 중복`);
+    q.ids.forEach((id) => { if (askedAll.includes(id)) dupCount++; });
+    if (q.recycled && recycledAt === null) recycledAt = dayNo;
+    if (q.toDay !== dayNo - 1) fail(`Day ${dayNo}: 범위 표기가 Day 1~${q.toDay} (기대 Day 1~${dayNo - 1})`);
+    askedAll = askedAll.concat(q.ids);
+    fired.push(`Day ${dayNo}→1~${q.toDay}`);
+    lastQuizAt = lessonIndex;
+  } else {
+    lessonIndex++;     // 학습일
   }
 }
-const expected = ['Day 4에 Day 1~3 출제', 'Day 7에 Day 4~6 출제', 'Day 10에 Day 7~9 출제'];
-if (fired.join(' | ') !== expected.join(' | ')) fail(`퀴즈 일정 불일치: ${fired.join(' | ')}`);
-console.log(`  일정         ${fired.join(' / ')}`);
+if (dupCount) fail(`누적 ${dupCount}개 문항이 재출제되었습니다`);
+const head = fired.slice(0, 3).join(', ');
+if (head !== 'Day 4→1~3, Day 8→1~7, Day 12→1~11') fail(`일정 불일치: ${head}`);
+console.log(`  일정         ${head} … (총 ${fired.length}회, 중복 0건${recycledAt ? `, 재출제 시작 Day ${recycledAt}` : ''})`);
 
-const quiz = sandbox.buildQuiz_(Math.max(0, day - 3), 3);
+const quiz = sandbox.buildQuiz_(Math.max(1, lessonIdx), day, []);
 const quizOut = path.join(ROOT, 'preview-quiz.html');
 fs.writeFileSync(quizOut, sandbox.renderQuizHtml_(quiz, new Date(),
   { url: 'https://docs.google.com/document/d/PREVIEW/edit', shared: true, docx: true }), 'utf8');
 
-// 모든 구간에서 문항 수가 채워지는지 확인
 const planned = sandbox.QUIZ_PLAN.reduce((n, p) => n + p.count, 0);
-const shortest = Math.min(...Object.values(lib).map((a) => a.length));
-for (let i = 0; i + 3 <= shortest; i++) {
-  const q = sandbox.buildQuiz_(i, 3);
-  if (q.questions.length !== planned) fail(`퀴즈 Day ${i + 1}~${i + 3}: 문항 ${q.questions.length}개 (기대 ${planned}개)`);
-  const answers = new Set(q.questions.map((x) => x.answer.toLowerCase()));
-  if (answers.size !== q.questions.length) fail(`퀴즈 Day ${i + 1}~${i + 3}: 정답 중복`);
-  q.questions.forEach((x, n) => {
-    if (!x.prompt || !x.answer) fail(`퀴즈 Day ${i + 1}~${i + 3} ${n + 1}번: 문제/정답 누락`);
-    if (x.type === 'cloze' && x.prompt.indexOf('______') < 0) fail(`퀴즈 Day ${i + 1}~${i + 3} ${n + 1}번: 빈칸 없음`);
-  });
-}
-console.log(`  quiz         ${shortest - 2}개 구간 · 회차당 ${planned}문항`);
+console.log(`  quiz         회차당 ${planned}문항 · 누적 범위에서 중복 없이 출제`);
 
 console.log('');
+console.log('  Day ' + day + (isQuizDay ? ' — 복습 퀴즈 날 (학습 메일 없음)' : ' — ' + lesson.lesson + '회차 학습'));
 console.log('  제목: ' + sandbox.buildSubject_(cfg, lesson));
 console.log('  미리보기: ' + path.relative(ROOT, out) + ', ' + path.relative(ROOT, quizOut));
 console.log('');

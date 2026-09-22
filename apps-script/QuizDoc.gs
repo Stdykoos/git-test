@@ -18,7 +18,8 @@
 function buildQuizDocSpec_(quiz, title) {
   var spec = [];
   spec.push({ kind: 'title', text: title });
-  spec.push({ kind: 'note', text: '이 문서에 바로 답을 적을 수 있습니다. 자동 저장됩니다.' });
+  spec.push({ kind: 'note', text: '이 문서에 바로 답을 적을 수 있습니다. 자동 저장됩니다. ' +
+    '지금까지 배운 ' + quiz.lessonCount + '회차 전체에서 중복 없이 뽑은 문항입니다.' });
 
   spec.push({ kind: 'h2', text: '푸는 방법' });
   for (var i = 0; i < QUIZ_HOWTO.length; i++) {
@@ -33,7 +34,7 @@ function buildQuizDocSpec_(quiz, title) {
   for (var n = 0; n < quiz.questions.length; n++) {
     var q = quiz.questions[n];
     spec.push({ kind: 'q', text: (n + 1) + '. [' + QUIZ_TYPE_LABEL[q.type].badge + '] ' +
-      q.label + ' · Day ' + q.day });
+      q.label + ' · ' + q.day + '회차' });
     spec.push({ kind: 'p', text: q.prompt });
     if (q.blank) spec.push({ kind: 'mono', text: q.blank });
     if (q.hint) spec.push({ kind: 'note', text: '힌트: ' + q.hint });
@@ -44,10 +45,10 @@ function buildQuizDocSpec_(quiz, title) {
   spec.push({ kind: 'pagebreak' });
 
   spec.push({ kind: 'h2', text: '정답' });
-  spec.push({ kind: 'note', text: '틀린 문항은 해당 Day 학습 메일을 열어 문장째로 다시 읽어 보세요.' });
+  spec.push({ kind: 'note', text: '틀린 문항은 해당 회차의 학습 메일을 열어 문장째로 다시 읽어 보세요.' });
   for (var a = 0; a < quiz.questions.length; a++) {
     spec.push({ kind: 'p', text: (a + 1) + '. ' + quiz.questions[a].answer +
-      '  (Day ' + quiz.questions[a].day + ')' });
+      '  (' + quiz.questions[a].day + '회차)' });
   }
   return spec;
 }
