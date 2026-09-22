@@ -13,7 +13,7 @@ const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
 const SRC_DIR = path.join(ROOT, 'apps-script');
-const FILES = ['Content_Theory.gs', 'Content_Negotiation.gs', 'Content_Meeting.gs', 'Sources.gs', 'Code.gs', 'Quiz.gs'];
+const FILES = ['Content_Theory.gs', 'Content_Negotiation.gs', 'Content_Meeting.gs', 'Sources.gs', 'Code.gs', 'Quiz.gs', 'QuizDoc.gs'];
 
 const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -29,6 +29,8 @@ const sandbox = {
   Session: { getScriptTimeZone: () => 'Asia/Seoul' },
   Logger: { log: (...a) => console.log('[Logger]', ...a) },
   GmailApp: { sendEmail: () => { throw new Error('preview mode: no mail sent'); } },
+  DocumentApp: { ParagraphHeading: { TITLE: 'TITLE', HEADING2: 'H2', NORMAL: 'NORMAL' } },
+  DriveApp: {}, UrlFetchApp: {},
   ScriptApp: { getProjectTriggers: () => [], newTrigger: () => { throw new Error('preview mode'); } },
   Utilities: {
     formatDate(date, tz, fmt) {
@@ -94,9 +96,38 @@ Object.keys(lib).forEach((k) => {
   console.log(`  출처 ${k.padEnd(8)} ${n}/${lib[k].length}개 주제`);
 });
 
+// 퀴즈 문서 구조 검증
+const specQuiz = sandbox.buildQuiz_(0, 3);
+const spec = sandbox.buildQuizDocSpec_(specQuiz, '복습 퀴즈 Day 1~3');
+const boxes = spec.filter((x) => x.kind === 'answerbox').length;
+if (boxes !== specQuiz.questions.length) fail(`문서: 답 칸 ${boxes}개 (문항 ${specQuiz.questions.length}개와 불일치)`);
+if (spec.filter((x) => x.kind === 'pagebreak').length !== 1) fail('문서: 정답 페이지 구분이 없습니다');
+if (!spec.some((x) => x.kind === 'h2' && x.text === '푸는 방법')) fail('문서: 지시문 섹션 누락');
+if (!spec.some((x) => x.kind === 'h2' && x.text === '정답')) fail('문서: 정답 섹션 누락');
+specQuiz.questions.forEach((q, i) => {
+  if (!spec.some((x) => x.text === `${i + 1}. ${q.answer}  (Day ${q.day})`)) fail(`문서: ${i + 1}번 정답 누락`);
+});
+console.log(`  문서         ${spec.length}개 블록 · 답 칸 ${boxes}개 · 정답 페이지 분리`);
+
+// 발송 일정 시뮬레이션: 3일 학습 → 그다음 날 퀴즈
+const every = 3;
+let last = 0;
+const fired = [];
+for (let lessonDay = 1; lessonDay <= 12; lessonDay++) {
+  const done = lessonDay;            // 그날 아침 학습 메일 발송 후
+  if (done - last > every) {         // 저녁 퀴즈 판정
+    fired.push(`Day ${lessonDay}에 Day ${last + 1}~${last + every} 출제`);
+    last += every;
+  }
+}
+const expected = ['Day 4에 Day 1~3 출제', 'Day 7에 Day 4~6 출제', 'Day 10에 Day 7~9 출제'];
+if (fired.join(' | ') !== expected.join(' | ')) fail(`퀴즈 일정 불일치: ${fired.join(' | ')}`);
+console.log(`  일정         ${fired.join(' / ')}`);
+
 const quiz = sandbox.buildQuiz_(Math.max(0, day - 3), 3);
 const quizOut = path.join(ROOT, 'preview-quiz.html');
-fs.writeFileSync(quizOut, sandbox.renderQuizHtml_(quiz, new Date()), 'utf8');
+fs.writeFileSync(quizOut, sandbox.renderQuizHtml_(quiz, new Date(),
+  { url: 'https://docs.google.com/document/d/PREVIEW/edit', shared: true, docx: true }), 'utf8');
 
 // 모든 구간에서 문항 수가 채워지는지 확인
 const planned = sandbox.QUIZ_PLAN.reduce((n, p) => n + p.count, 0);

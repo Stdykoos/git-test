@@ -18,6 +18,8 @@ var DEFAULT_CONFIG = {
   QUIZ_ENABLED: 'true',         // 'true'면 N일마다 복습 퀴즈 발송
   QUIZ_EVERY: '3',              // 몇 일치를 모아 퀴즈로 낼지
   QUIZ_HOUR: '19',              // 퀴즈 발송 시각 (0~23)
+  QUIZ_DOC: 'true',             // 'true'면 답을 쓸 수 있는 구글 문서를 만들어 링크 첨부
+  QUIZ_ATTACH_DOCX: 'true',     // 'true'면 같은 내용을 Word(.docx) 파일로 첨부
   QUIZ_LAST_INDEX: '0'          // 마지막 퀴즈 지점(자동 관리)
 };
 
@@ -47,6 +49,8 @@ function getConfig_() {
   cfg.QUIZ_ENABLED = String(cfg.QUIZ_ENABLED).toLowerCase() === 'true';
   cfg.QUIZ_EVERY = Math.max(1, parseInt(cfg.QUIZ_EVERY, 10) || 3);
   cfg.QUIZ_HOUR = Math.max(0, Math.min(23, parseInt(cfg.QUIZ_HOUR, 10) || 19));
+  cfg.QUIZ_DOC = String(cfg.QUIZ_DOC).toLowerCase() === 'true';
+  cfg.QUIZ_ATTACH_DOCX = String(cfg.QUIZ_ATTACH_DOCX).toLowerCase() === 'true';
   cfg.QUIZ_LAST_INDEX = Math.max(0, parseInt(cfg.QUIZ_LAST_INDEX, 10) || 0);
   return cfg;
 }
@@ -69,7 +73,7 @@ function setup() {
   installTriggers_(cfg);
   Logger.log('설정 완료: 매일 %s시에 %s 로 학습 메일을 보냅니다.', cfg.SEND_HOUR, cfg.RECIPIENT_EMAIL);
   if (cfg.QUIZ_ENABLED) {
-    Logger.log('복습 퀴즈: 학습 %s일치가 쌓일 때마다 저녁 %s시에 발송합니다.', cfg.QUIZ_EVERY, cfg.QUIZ_HOUR);
+    Logger.log('복습 퀴즈: 학습 %s일치를 마친 다음 날 저녁 %s시에 발송합니다.', cfg.QUIZ_EVERY, cfg.QUIZ_HOUR);
   }
   return '설정 완료';
 }
@@ -193,7 +197,7 @@ function showStatus() {
     Logger.log('복습 퀴즈   : %s · 저녁 %s시 · %s일마다 · %s',
       handlers.indexOf('sendQuizEmail') >= 0 ? '켜짐' : '트리거 없음 — setup을 실행하세요.',
       cfg.QUIZ_HOUR, cfg.QUIZ_EVERY,
-      untilQuiz > 0 ? '학습 ' + untilQuiz + '일치 더 쌓이면 발송' : '다음 발송 시 출제');
+      untilQuiz >= 0 ? '학습 ' + (untilQuiz + 1) + '일 더 진행하면 발송' : '다음 퀴즈 시각에 출제');
   }
 }
 

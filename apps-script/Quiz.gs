@@ -10,6 +10,19 @@
  *   C. 문장 영작   — 한국어 문장을 영어로 말해 보기 (상황 힌트)
  */
 
+/** 메일과 문서 양쪽에서 함께 쓰는 안내 문구 */
+var QUIZ_HOWTO = [
+  '정답을 보기 전에 먼저 풀어 보세요. 정답은 맨 뒤에 따로 모아 두었습니다.',
+  '첨부된 Word 파일이나 구글 문서에 직접 답을 적을 수 있습니다.',
+  '문장 영작은 글로 쓰는 대신 소리 내어 말해 보셔도 됩니다.'
+];
+
+var QUIZ_TYPE_HOWTO = {
+  word: '한국어 뜻과 영문 정의를 보고 영어 단어를 쓰세요. 밑줄은 글자 수이고 맨 앞 글자가 힌트입니다.',
+  cloze: '문장의 빈칸(______)에 들어갈 단어를 쓰세요.',
+  sentence: '한국어 문장을 영어로 옮겨 보세요. 괄호 안은 이 문장을 쓰는 상황입니다.'
+};
+
 var QUIZ_PLAN = [
   { type: 'word', count: 4 },
   { type: 'cloze', count: 3 },
@@ -46,16 +59,17 @@ function sendQuizEmail() {
 
   var done = cfg.LESSON_INDEX;          // 지금까지 발송한 학습 메일 수
   var last = cfg.QUIZ_LAST_INDEX;       // 마지막으로 퀴즈를 낸 지점
-  if (done - last < cfg.QUIZ_EVERY) {
-    Logger.log('아직 학습 %s일치가 쌓이지 않았습니다 (현재 %s일). 퀴즈를 보내지 않습니다.',
-      cfg.QUIZ_EVERY, done - last);
+
+  // 3일치를 배우고 "그다음 날"에 보낸다. 즉 Day 4에 Day 1~3 퀴즈가 나간다.
+  if (done - last <= cfg.QUIZ_EVERY) {
+    Logger.log('아직 퀴즈 차례가 아닙니다. 학습 %s일 완료 / %s일치가 쌓인 다음 날 발송합니다.',
+      done - last, cfg.QUIZ_EVERY);
     return;
   }
 
-  var from = done - cfg.QUIZ_EVERY;
-  deliverQuiz_(cfg, from, cfg.QUIZ_EVERY, now);
-  props_().setProperty('QUIZ_LAST_INDEX', String(done));
-  Logger.log('Day %s~%s 복습 퀴즈를 발송했습니다.', from + 1, done);
+  deliverQuiz_(cfg, last, cfg.QUIZ_EVERY, now);
+  props_().setProperty('QUIZ_LAST_INDEX', String(last + cfg.QUIZ_EVERY));
+  Logger.log('Day %s~%s 복습 퀴즈를 발송했습니다.', last + 1, last + cfg.QUIZ_EVERY);
 }
 
 /** 테스트 발송: 최근 3일치로 퀴즈를 지금 보낸다 (진도·퀴즈 기록은 바뀌지 않음). */
@@ -70,11 +84,25 @@ function sendTestQuiz() {
 
 function deliverQuiz_(cfg, fromIndex, days, now) {
   var quiz = buildQuiz_(fromIndex, days);
+  var title = '복습 퀴즈 Day ' + quiz.fromDay + '~' + quiz.toDay +
+    ' (' + Utilities.formatDate(now, timeZone_(), 'yyyy-MM-dd') + ')';
+
+  // 문서 생성은 실패해도 메일 발송 자체를 막지 않는다.
+  var docInfo = null;
+  if (cfg.QUIZ_DOC) {
+    try {
+      docInfo = createQuizDoc_(cfg, quiz, title);
+    } catch (e) {
+      Logger.log('퀴즈 문서를 만들지 못했습니다 (메일은 그대로 발송): %s', e.message);
+    }
+  }
+
   var subject = cfg.SUBJECT_PREFIX + ' 복습 퀴즈 — Day ' + quiz.fromDay + '~' + quiz.toDay +
     ' (' + quiz.questions.length + '문항)';
-  var options = { htmlBody: renderQuizHtml_(quiz, now), name: cfg.SENDER_NAME };
+  var options = { htmlBody: renderQuizHtml_(quiz, now, docInfo), name: cfg.SENDER_NAME };
   if (cfg.CC_EMAIL) options.cc = cfg.CC_EMAIL;
-  GmailApp.sendEmail(cfg.RECIPIENT_EMAIL, subject, renderQuizText_(quiz, now), options);
+  if (docInfo && docInfo.docx) options.attachments = [docInfo.docx];
+  GmailApp.sendEmail(cfg.RECIPIENT_EMAIL, subject, renderQuizText_(quiz, now, docInfo), options);
 }
 
 /* ------------------------------------------------------------------ */
@@ -200,7 +228,7 @@ function buildQuiz_(fromIndex, days) {
 /* 렌더링                                                              */
 /* ------------------------------------------------------------------ */
 
-function renderQuizHtml_(quiz, now) {
+function renderQuizHtml_(quiz, now, docInfo) {
   var h = [];
   h.push('<div style="margin:0;padding:0;background:#f4f5f7;">');
   h.push('<div style="max-width:640px;margin:0 auto;padding:24px 16px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',\'Apple SD Gothic Neo\',\'Malgun Gothic\',Roboto,sans-serif;color:#1f2937;">');
@@ -210,6 +238,32 @@ function renderQuizHtml_(quiz, now) {
   h.push('<div style="font-size:24px;font-weight:700;margin-top:6px;">Day ' + quiz.fromDay + '~' + quiz.toDay + ' 복습</div>');
   h.push('<div style="font-size:13px;color:#ddd6fe;margin-top:4px;">' + esc_(formatDate_(now)) +
     ' · ' + quiz.questions.length + '문항 · 정답은 맨 아래</div>');
+  h.push('</div>');
+
+  // 푸는 방법
+  h.push('<div style="background:#ffffff;border-radius:14px;padding:18px 20px;margin-top:16px;">');
+  h.push('<div style="font-size:13px;font-weight:700;color:#4c1d95;">푸는 방법</div>');
+  h.push('<div style="font-size:13px;color:#475569;line-height:1.8;margin-top:6px;">');
+  for (var g = 0; g < QUIZ_HOWTO.length; g++) {
+    h.push('<div>' + (g + 1) + '. ' + esc_(QUIZ_HOWTO[g]) + '</div>');
+  }
+  h.push('</div>');
+
+  if (docInfo && (docInfo.url || docInfo.docx)) {
+    h.push('<div style="margin-top:14px;padding-top:14px;border-top:1px solid #f1f5f9;">');
+    if (docInfo.url && docInfo.shared) {
+      h.push('<a href="' + docInfo.url + '" style="display:inline-block;background:#4c1d95;color:#ffffff;' +
+        'text-decoration:none;font-size:14px;font-weight:600;padding:11px 18px;border-radius:8px;">' +
+        '구글 문서에서 답 쓰기 →</a>');
+    }
+    h.push('<div style="font-size:12px;color:#94a3b8;margin-top:8px;line-height:1.6;">' +
+      (docInfo.docx ? '첨부된 Word 파일에 적으셔도 됩니다. ' : '') +
+      (docInfo.url && !docInfo.shared
+        ? '구글 문서 공유가 조직 정책으로 제한되어 링크 대신 첨부 파일을 이용해 주세요.'
+        : '문서는 내 드라이브의 “Daily Business English” 폴더에 쌓입니다.') +
+      '</div>');
+    h.push('</div>');
+  }
   h.push('</div>');
 
   h.push('<div style="background:#ffffff;border-radius:14px;padding:20px;margin-top:16px;">');
@@ -244,6 +298,7 @@ function renderQuestionHtml_(q, n) {
   h.push('<div style="padding:14px 0;border-bottom:1px solid #f1f5f9;">');
   h.push('<div style="font-size:11px;color:' + meta.color + ';font-weight:700;letter-spacing:.06em;">' +
     n + '. ' + meta.badge + ' <span style="color:#cbd5e1;font-weight:500;">· ' + esc_(q.label) + ' · Day ' + q.day + '</span></div>');
+  h.push('<div style="font-size:11.5px;color:#94a3b8;margin-top:3px;line-height:1.5;">' + esc_(QUIZ_TYPE_HOWTO[q.type]) + '</div>');
   h.push('<div style="font-size:15px;font-weight:600;color:#111827;line-height:1.6;margin-top:6px;">' + esc_(q.prompt) + '</div>');
   if (q.blank) {
     h.push('<div style="font-size:15px;color:#334155;letter-spacing:.08em;margin-top:6px;font-family:monospace;">' + esc_(q.blank) + '</div>');
@@ -255,14 +310,21 @@ function renderQuestionHtml_(q, n) {
   return h.join('');
 }
 
-function renderQuizText_(quiz, now) {
+function renderQuizText_(quiz, now, docInfo) {
   var t = [];
   t.push('복습 퀴즈 — Day ' + quiz.fromDay + '~' + quiz.toDay);
   t.push(formatDate_(now));
   t.push('');
+  t.push('[푸는 방법]');
+  for (var g = 0; g < QUIZ_HOWTO.length; g++) t.push('  ' + (g + 1) + '. ' + QUIZ_HOWTO[g]);
+  if (docInfo && docInfo.url && docInfo.shared) {
+    t.push('  구글 문서: ' + docInfo.url);
+  }
+  t.push('');
   for (var i = 0; i < quiz.questions.length; i++) {
     var q = quiz.questions[i];
     t.push((i + 1) + '. [' + QUIZ_TYPE_LABEL[q.type].badge + '] ' + q.prompt);
+    t.push('   (' + QUIZ_TYPE_HOWTO[q.type] + ')');
     if (q.blank) t.push('   ' + q.blank);
     if (q.hint) t.push('   힌트: ' + q.hint);
   }
