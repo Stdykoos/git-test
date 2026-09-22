@@ -13,7 +13,7 @@ const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
 const SRC_DIR = path.join(ROOT, 'apps-script');
-const FILES = ['Content_Theory.gs', 'Content_Negotiation.gs', 'Content_Meeting.gs', 'Code.gs', 'Quiz.gs'];
+const FILES = ['Content_Theory.gs', 'Content_Negotiation.gs', 'Content_Meeting.gs', 'Sources.gs', 'Code.gs', 'Quiz.gs'];
 
 const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -79,6 +79,20 @@ const html = sandbox.renderHtml_(lesson, new Date());
 const cfg = { SUBJECT_PREFIX: sandbox.DEFAULT_CONFIG.SUBJECT_PREFIX };
 const out = path.join(ROOT, 'preview.html');
 fs.writeFileSync(out, html, 'utf8');
+
+// 출처: 존재하지 않는 주제에 붙은 항목이 없는지, 카테고리별 커버리지는 얼마인지
+const allFocuses = new Set();
+Object.keys(lib).forEach((k) => lib[k].forEach((e) => allFocuses.add(e.focus)));
+Object.keys(sandbox.SOURCES).forEach((k) => {
+  if (!allFocuses.has(k)) fail(`출처 "${k}": 같은 이름의 학습 주제가 없습니다 (오타 확인)`);
+  const src = sandbox.SOURCES[k];
+  ['author', 'work', 'year'].forEach((f) => { if (!src[f]) fail(`출처 "${k}": ${f} 누락`); });
+  if (!/^https:\/\/scholar\.google\.com\/scholar\?q=/.test(sandbox.sourceUrl_(src))) fail(`출처 "${k}": 링크 생성 실패`);
+});
+Object.keys(lib).forEach((k) => {
+  const n = lib[k].filter((e) => sandbox.SOURCES[e.focus]).length;
+  console.log(`  출처 ${k.padEnd(8)} ${n}/${lib[k].length}개 주제`);
+});
 
 const quiz = sandbox.buildQuiz_(Math.max(0, day - 3), 3);
 const quizOut = path.join(ROOT, 'preview-quiz.html');

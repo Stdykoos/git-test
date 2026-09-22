@@ -386,6 +386,21 @@ function renderBlockHtml_(block, n) {
   }
   h.push('</div>');
 
+  var src = sourceFor_(e.focus);
+  if (src) {
+    h.push('<div style="border-top:1px solid #e5e7eb;margin-top:12px;padding-top:12px;">');
+    h.push('<div style="font-size:12px;color:#64748b;line-height:1.7;">');
+    h.push('<span style="color:#94a3b8;">📖 출처</span> <b>' + esc_(sourceLabel_(src)) + '</b> · ' +
+      '<i>' + esc_(src.work) + '</i>');
+    h.push('</div>');
+    if (src.note) {
+      h.push('<div style="font-size:12px;color:#94a3b8;line-height:1.6;margin-top:3px;">' + esc_(src.note) + '</div>');
+    }
+    h.push('<div style="margin-top:6px;"><a href="' + sourceUrl_(src) + '" ' +
+      'style="font-size:12px;color:' + block.color + ';text-decoration:none;font-weight:600;">원문·관련 자료 찾아보기 →</a></div>');
+    h.push('</div>');
+  }
+
   h.push('</div>');
   return h.join('');
 }
@@ -408,6 +423,11 @@ function renderText_(lesson, now) {
       var word = b.entry.words[w];
       t.push('  · ' + word.term + ' — ' + word.ko + ' : ' + word.def);
       if (word.ex) t.push('    e.g. ' + word.ex);
+    }
+    var src = sourceFor_(b.entry.focus);
+    if (src) {
+      t.push('  [출처] ' + sourceLabel_(src) + ' — ' + src.work);
+      t.push('         ' + sourceUrl_(src));
     }
     t.push('');
   }
