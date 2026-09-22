@@ -14,7 +14,11 @@ var DEFAULT_CONFIG = {
   WEEKDAYS_ONLY: 'true',        // 'true'면 토/일 발송 안 함
   SENDER_NAME: 'Daily Business English',
   SUBJECT_PREFIX: '[Daily Biz English]',
-  LESSON_INDEX: '0'             // 진도(자동 관리). 수동으로 건드리지 않아도 됨.
+  LESSON_INDEX: '0',            // 진도(자동 관리). 수동으로 건드리지 않아도 됨.
+  QUIZ_ENABLED: 'true',         // 'true'면 N일마다 복습 퀴즈 발송
+  QUIZ_EVERY: '3',              // 몇 일치를 모아 퀴즈로 낼지
+  QUIZ_HOUR: '19',              // 퀴즈 발송 시각 (0~23)
+  QUIZ_LAST_INDEX: '0'          // 마지막 퀴즈 지점(자동 관리)
 };
 
 var CATEGORIES = [
@@ -40,6 +44,10 @@ function getConfig_() {
   cfg.SEND_HOUR = Math.max(0, Math.min(23, parseInt(cfg.SEND_HOUR, 10) || 7));
   cfg.WEEKDAYS_ONLY = String(cfg.WEEKDAYS_ONLY).toLowerCase() === 'true';
   cfg.LESSON_INDEX = Math.max(0, parseInt(cfg.LESSON_INDEX, 10) || 0);
+  cfg.QUIZ_ENABLED = String(cfg.QUIZ_ENABLED).toLowerCase() === 'true';
+  cfg.QUIZ_EVERY = Math.max(1, parseInt(cfg.QUIZ_EVERY, 10) || 3);
+  cfg.QUIZ_HOUR = Math.max(0, Math.min(23, parseInt(cfg.QUIZ_HOUR, 10) || 19));
+  cfg.QUIZ_LAST_INDEX = Math.max(0, parseInt(cfg.QUIZ_LAST_INDEX, 10) || 0);
   return cfg;
 }
 
@@ -58,8 +66,11 @@ function setup() {
   if (!cfg.RECIPIENT_EMAIL) {
     throw new Error('RECIPIENT_EMAIL이 비어 있습니다. setRecipient("회사메일주소") 를 먼저 실행하세요.');
   }
-  installTrigger_(cfg.SEND_HOUR);
-  Logger.log('설정 완료: 매일 %s시에 %s 로 발송합니다.', cfg.SEND_HOUR, cfg.RECIPIENT_EMAIL);
+  installTriggers_(cfg);
+  Logger.log('설정 완료: 매일 %s시에 %s 로 학습 메일을 보냅니다.', cfg.SEND_HOUR, cfg.RECIPIENT_EMAIL);
+  if (cfg.QUIZ_ENABLED) {
+    Logger.log('복습 퀴즈: 학습 %s일치가 쌓일 때마다 저녁 %s시에 발송합니다.', cfg.QUIZ_EVERY, cfg.QUIZ_HOUR);
+  }
   return '설정 완료';
 }
 
@@ -101,9 +112,16 @@ function setSendHour(hour) {
   return h;
 }
 
-function installTrigger_(hour) {
+var TRIGGER_HANDLERS = ['sendDailyLesson', 'sendQuizEmail'];
+
+function installTriggers_(cfg) {
   removeTriggers_();
-  ScriptApp.newTrigger('sendDailyLesson')
+  newDailyTrigger_('sendDailyLesson', cfg.SEND_HOUR);
+  if (cfg.QUIZ_ENABLED) newDailyTrigger_('sendQuizEmail', cfg.QUIZ_HOUR);
+}
+
+function newDailyTrigger_(handler, hour) {
+  ScriptApp.newTrigger(handler)
     .timeBased()
     .everyDays(1)
     .atHour(hour)
@@ -111,10 +129,17 @@ function installTrigger_(hour) {
     .create();
 }
 
+/** 과거 버전 호환: 학습 메일 시각만 바꿀 때도 퀴즈 트리거를 유지한다. */
+function installTrigger_(hour) {
+  var cfg = getConfig_();
+  cfg.SEND_HOUR = hour;
+  installTriggers_(cfg);
+}
+
 function removeTriggers_() {
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'sendDailyLesson') {
+    if (TRIGGER_HANDLERS.indexOf(triggers[i].getHandlerFunction()) >= 0) {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
@@ -123,13 +148,13 @@ function removeTriggers_() {
 /** 발송 중단 (트리거만 삭제, 진도는 유지) */
 function stopDailyLesson() {
   removeTriggers_();
-  Logger.log('매일 발송 트리거를 제거했습니다.');
+  Logger.log('학습 메일·복습 퀴즈 트리거를 모두 제거했습니다. 다시 켜려면 setup을 실행하세요.');
 }
 
 /** 진도 초기화 (Day 1부터 다시) */
 function resetProgress() {
-  props_().setProperty('LESSON_INDEX', '0');
-  Logger.log('진도를 Day 1로 초기화했습니다.');
+  props_().setProperties({ LESSON_INDEX: '0', QUIZ_LAST_INDEX: '0' });
+  Logger.log('진도를 Day 1로 초기화했습니다. (복습 퀴즈 기록도 함께 초기화)');
 }
 
 /**
@@ -145,8 +170,8 @@ function goToDay(day) {
     return current;
   }
   d = Math.max(1, d);
-  props_().setProperty('LESSON_INDEX', String(d - 1));
-  Logger.log('진도를 Day %s로 옮겼습니다.', d);
+  props_().setProperties({ LESSON_INDEX: String(d - 1), QUIZ_LAST_INDEX: String(d - 1) });
+  Logger.log('진도를 Day %s로 옮겼습니다. (복습 퀴즈 기준점도 함께 이동)', d);
   return d;
 }
 
@@ -154,15 +179,22 @@ function goToDay(day) {
 function showStatus() {
   var cfg = getConfig_();
   var lesson = buildLesson_(cfg.LESSON_INDEX);
-  var triggers = ScriptApp.getProjectTriggers().filter(function (t) {
-    return t.getHandlerFunction() === 'sendDailyLesson';
-  });
+  var handlers = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
+  var untilQuiz = cfg.QUIZ_EVERY - (cfg.LESSON_INDEX - cfg.QUIZ_LAST_INDEX);
   Logger.log('수신 주소   : %s', cfg.RECIPIENT_EMAIL || '(미설정)');
   Logger.log('참조        : %s', cfg.CC_EMAIL || '(없음)');
   Logger.log('발송 시각   : 매일 %s시 (%s)', cfg.SEND_HOUR, cfg.WEEKDAYS_ONLY ? '주말 제외' : '주말 포함');
-  Logger.log('자동 발송   : %s', triggers.length ? '켜짐' : '꺼짐 — setup을 실행하세요.');
+  Logger.log('자동 발송   : %s', handlers.indexOf('sendDailyLesson') >= 0 ? '켜짐' : '꺼짐 — setup을 실행하세요.');
   Logger.log('다음 발송   : Day %s — %s', lesson.day,
     lesson.blocks.map(function (b) { return b.entry.focus; }).join(' · '));
+  if (!cfg.QUIZ_ENABLED) {
+    Logger.log('복습 퀴즈   : 꺼짐 (QUIZ_ENABLED)');
+  } else {
+    Logger.log('복습 퀴즈   : %s · 저녁 %s시 · %s일마다 · %s',
+      handlers.indexOf('sendQuizEmail') >= 0 ? '켜짐' : '트리거 없음 — setup을 실행하세요.',
+      cfg.QUIZ_HOUR, cfg.QUIZ_EVERY,
+      untilQuiz > 0 ? '학습 ' + untilQuiz + '일치 더 쌓이면 발송' : '다음 발송 시 출제');
+  }
 }
 
 /* ------------------------------------------------------------------ */

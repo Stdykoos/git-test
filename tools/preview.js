@@ -13,7 +13,7 @@ const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
 const SRC_DIR = path.join(ROOT, 'apps-script');
-const FILES = ['Content_Theory.gs', 'Content_Negotiation.gs', 'Content_Meeting.gs', 'Code.gs'];
+const FILES = ['Content_Theory.gs', 'Content_Negotiation.gs', 'Content_Meeting.gs', 'Code.gs', 'Quiz.gs'];
 
 const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -80,9 +80,28 @@ const cfg = { SUBJECT_PREFIX: sandbox.DEFAULT_CONFIG.SUBJECT_PREFIX };
 const out = path.join(ROOT, 'preview.html');
 fs.writeFileSync(out, html, 'utf8');
 
+const quiz = sandbox.buildQuiz_(Math.max(0, day - 3), 3);
+const quizOut = path.join(ROOT, 'preview-quiz.html');
+fs.writeFileSync(quizOut, sandbox.renderQuizHtml_(quiz, new Date()), 'utf8');
+
+// 모든 구간에서 문항 수가 채워지는지 확인
+const planned = sandbox.QUIZ_PLAN.reduce((n, p) => n + p.count, 0);
+const shortest = Math.min(...Object.values(lib).map((a) => a.length));
+for (let i = 0; i + 3 <= shortest; i++) {
+  const q = sandbox.buildQuiz_(i, 3);
+  if (q.questions.length !== planned) fail(`퀴즈 Day ${i + 1}~${i + 3}: 문항 ${q.questions.length}개 (기대 ${planned}개)`);
+  const answers = new Set(q.questions.map((x) => x.answer.toLowerCase()));
+  if (answers.size !== q.questions.length) fail(`퀴즈 Day ${i + 1}~${i + 3}: 정답 중복`);
+  q.questions.forEach((x, n) => {
+    if (!x.prompt || !x.answer) fail(`퀴즈 Day ${i + 1}~${i + 3} ${n + 1}번: 문제/정답 누락`);
+    if (x.type === 'cloze' && x.prompt.indexOf('______') < 0) fail(`퀴즈 Day ${i + 1}~${i + 3} ${n + 1}번: 빈칸 없음`);
+  });
+}
+console.log(`  quiz         ${shortest - 2}개 구간 · 회차당 ${planned}문항`);
+
 console.log('');
 console.log('  제목: ' + sandbox.buildSubject_(cfg, lesson));
-console.log('  미리보기: ' + path.relative(ROOT, out));
+console.log('  미리보기: ' + path.relative(ROOT, out) + ', ' + path.relative(ROOT, quizOut));
 console.log('');
 if (errors) {
   console.error(`검증 실패: ${errors}건`);
