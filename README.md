@@ -125,7 +125,8 @@ Apps Script 편집기에서 함수를 골라 `실행`하면 됩니다.
 | 키 | 기본값 | 설명 |
 | --- | --- | --- |
 | `RECIPIENT_EMAIL` | (필수) | 회사 메일 주소 |
-| `CC_EMAIL` | 빈값 | 참조 주소 (콤마로 여러 개) |
+| `CC_EMAIL` | 빈값 | 참조 주소. 여러 개면 콤마로 구분 (`a@x.com, b@y.com`).
+공백·줄바꿈·세미콜론이 섞여도 자동으로 정리되고, `@`가 없는 값은 무시됨 |
 | `SEND_HOUR` | `7` | 발송 시각 (0~23) |
 | `WEEKDAYS_ONLY` | `true` | `true`면 토·일 발송 안 함 |
 | `SUBJECT_PREFIX` | `[Daily Biz English]` | 메일 제목 앞머리 (메일 필터·라벨 자동화에 사용) |

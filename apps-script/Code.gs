@@ -45,6 +45,11 @@ function getConfig_() {
   for (var k in DEFAULT_CONFIG) {
     cfg[k] = (p[k] === undefined || p[k] === '') ? DEFAULT_CONFIG[k] : p[k];
   }
+  // 참조 주소는 콤마로 여러 개. 공백·줄바꿈이 섞여 들어와도 발송되도록 정리한다.
+  cfg.CC_LIST = String(cfg.CC_EMAIL || '').split(/[,;\s]+/)
+    .map(function (x) { return x.trim(); })
+    .filter(function (x) { return x.indexOf('@') > 0; });
+  cfg.CC_EMAIL = cfg.CC_LIST.join(',');
   cfg.SEND_HOUR = Math.max(0, Math.min(23, parseInt(cfg.SEND_HOUR, 10) || 7));
   cfg.WEEKDAYS_ONLY = String(cfg.WEEKDAYS_ONLY).toLowerCase() === 'true';
   cfg.LESSON_INDEX = Math.max(0, parseInt(cfg.LESSON_INDEX, 10) || 0);
@@ -191,7 +196,7 @@ function showStatus() {
   var untilQuiz = cfg.QUIZ_EVERY - (cfg.LESSON_INDEX - cfg.QUIZ_LAST_INDEX);
   var askedCount = (props_().getProperty('QUIZ_ASKED') || '').split(',').filter(String).length;
   Logger.log('수신 주소   : %s', cfg.RECIPIENT_EMAIL || '(미설정)');
-  Logger.log('참조        : %s', cfg.CC_EMAIL || '(없음)');
+  Logger.log('참조        : %s', cfg.CC_LIST.length ? cfg.CC_LIST.join(', ') + ' (' + cfg.CC_LIST.length + '명)' : '(없음)');
   Logger.log('발송 시각   : 매일 %s시 (%s)', cfg.SEND_HOUR, cfg.WEEKDAYS_ONLY ? '주말 제외' : '주말 포함');
   Logger.log('자동 발송   : %s', handlers.indexOf('sendDailyLesson') >= 0 ? '켜짐' : '꺼짐 — setup을 실행하세요.');
   if (untilQuiz <= 0) {

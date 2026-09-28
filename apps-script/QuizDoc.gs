@@ -122,10 +122,7 @@ function quizFolder_() {
  * 조직 정책으로 외부 공유가 막혀 있으면 첨부된 Word 파일을 쓰면 된다.
  */
 function shareQuizDoc_(file, cfg) {
-  var targets = [cfg.RECIPIENT_EMAIL];
-  if (cfg.CC_EMAIL) {
-    targets = targets.concat(String(cfg.CC_EMAIL).split(',').map(function (x) { return x.trim(); }));
-  }
+  var targets = [cfg.RECIPIENT_EMAIL].concat(cfg.CC_LIST || []);
   var ok = false;
   for (var i = 0; i < targets.length; i++) {
     if (!targets[i]) continue;
