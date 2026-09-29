@@ -254,7 +254,23 @@ function sendTestEmail() {
   var cfg = getConfig_();
   if (!cfg.RECIPIENT_EMAIL) throw new Error('RECIPIENT_EMAIL이 설정되어 있지 않습니다.');
   deliver_(cfg, cfg.LESSON_INDEX, new Date(), cfg.DAY_NUMBER + 1);
-  Logger.log('테스트 메일을 %s 로 보냈습니다.', cfg.RECIPIENT_EMAIL);
+  Logger.log('테스트 메일을 보냈습니다. 수신 %s / 참조 %s', cfg.RECIPIENT_EMAIL,
+    cfg.CC_LIST.length ? cfg.CC_LIST.join(', ') : '(없음)');
+}
+
+/**
+ * 가장 최근에 발송된 학습 메일을 그대로 한 번 더 보낸다.
+ * 진도(LESSON_INDEX·DAY_NUMBER)는 전혀 바뀌지 않으므로 몇 번이든 실행해도 된다.
+ * 참조 주소를 추가한 뒤 그 사람들에게도 오늘 자 메일을 보내 줄 때 쓴다.
+ */
+function resendToday() {
+  var cfg = getConfig_();
+  if (!cfg.RECIPIENT_EMAIL) throw new Error('RECIPIENT_EMAIL이 설정되어 있지 않습니다.');
+  var index = Math.max(0, cfg.LESSON_INDEX - 1);
+  deliver_(cfg, index, new Date(), cfg.DAY_NUMBER);
+  Logger.log('가장 최근 학습 메일(%s회차)을 다시 보냈습니다. 진도는 그대로입니다.', String(index + 1));
+  Logger.log('수신 %s / 참조 %s', cfg.RECIPIENT_EMAIL,
+    cfg.CC_LIST.length ? cfg.CC_LIST.join(', ') : '(없음)');
 }
 
 function deliver_(cfg, index, now, dayNumber) {
