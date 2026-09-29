@@ -82,7 +82,7 @@ function sendQuizEmail() {
   }
   if (!isQuizDue_(cfg)) {
     Logger.log('오늘은 퀴즈 날이 아닙니다. 학습 %s일 완료 / %s일마다 출제합니다.',
-      cfg.LESSON_INDEX - cfg.QUIZ_LAST_INDEX, cfg.QUIZ_EVERY);
+      String(cfg.LESSON_INDEX - cfg.QUIZ_LAST_INDEX), String(cfg.QUIZ_EVERY));
     return;
   }
 
@@ -90,7 +90,7 @@ function sendQuizEmail() {
   props_().setProperty('QUIZ_LAST_INDEX', String(cfg.LESSON_INDEX));
   saveAsked_(loadAsked_().concat(result.ids));
   Logger.log('Day 1~%s 누적 복습 퀴즈를 발송했습니다 (신규 문항 %s개, 누적 출제 %s개).',
-    result.toDay, result.ids.length, loadAsked_().length);
+    String(result.toDay), String(result.ids.length), String(loadAsked_().length));
 }
 
 /** 테스트 발송: 지금 한 통 보낸다. 진도와 출제 기록은 바뀌지 않는다. */
@@ -101,7 +101,7 @@ function sendTestQuiz() {
   var day = Math.max(lessons + 1, cfg.DAY_NUMBER);
   deliverQuiz_(cfg, lessons, day, new Date(), loadAsked_());
   Logger.log('테스트 퀴즈(Day 1~%s)를 %s 로 보냈습니다. 출제 기록은 변경하지 않았습니다.',
-    day - 1, cfg.RECIPIENT_EMAIL);
+    String(day - 1), cfg.RECIPIENT_EMAIL);
 }
 
 /**

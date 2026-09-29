@@ -80,9 +80,9 @@ function setup() {
     throw new Error('RECIPIENT_EMAIL이 비어 있습니다. setRecipient("회사메일주소") 를 먼저 실행하세요.');
   }
   installTriggers_(cfg);
-  Logger.log('설정 완료: 매일 %s시에 %s 로 학습 메일을 보냅니다.', cfg.SEND_HOUR, cfg.RECIPIENT_EMAIL);
+  Logger.log('설정 완료: 매일 %s시에 %s 로 학습 메일을 보냅니다.', String(cfg.SEND_HOUR), cfg.RECIPIENT_EMAIL);
   if (cfg.QUIZ_ENABLED) {
-    Logger.log('복습 퀴즈: 학습 %s일치를 마친 다음 날 저녁 %s시에 발송합니다.', cfg.QUIZ_EVERY, cfg.QUIZ_HOUR);
+    Logger.log('복습 퀴즈: 학습 %s일치를 마친 다음 날 저녁 %s시에 발송합니다.', String(cfg.QUIZ_EVERY), String(cfg.QUIZ_HOUR));
   }
   return '설정 완료';
 }
@@ -116,12 +116,12 @@ function setSendHour(hour) {
   var h = parseInt(hour, 10);
   if (isNaN(h)) {
     h = getConfig_().SEND_HOUR;
-    Logger.log('인자가 없어 현재 설정값(%s시)으로 트리거를 재등록합니다. 시각을 바꾸려면 스크립트 속성의 SEND_HOUR 값을 수정한 뒤 다시 실행하세요.', h);
+    Logger.log('인자가 없어 현재 설정값(%s시)으로 트리거를 재등록합니다. 시각을 바꾸려면 스크립트 속성의 SEND_HOUR 값을 수정한 뒤 다시 실행하세요.', String(h));
   }
   h = Math.max(0, Math.min(23, h));
   props_().setProperty('SEND_HOUR', String(h));
   installTrigger_(h);
-  Logger.log('발송 시각: 매일 %s시', h);
+  Logger.log('발송 시각: 매일 %s시', String(h));
   return h;
 }
 
@@ -184,7 +184,7 @@ function goToDay(day) {
   }
   d = Math.max(1, d);
   props_().setProperties({ LESSON_INDEX: String(d - 1), DAY_NUMBER: String(d - 1), QUIZ_LAST_INDEX: String(d - 1) });
-  Logger.log('진도를 Day %s로 옮겼습니다. (복습 퀴즈 기준점도 함께 이동)', d);
+  Logger.log('진도를 Day %s로 옮겼습니다. (복습 퀴즈 기준점도 함께 이동)', String(d));
   return d;
 }
 
@@ -197,12 +197,12 @@ function showStatus() {
   var askedCount = (props_().getProperty('QUIZ_ASKED') || '').split(',').filter(String).length;
   Logger.log('수신 주소   : %s', cfg.RECIPIENT_EMAIL || '(미설정)');
   Logger.log('참조        : %s', cfg.CC_LIST.length ? cfg.CC_LIST.join(', ') + ' (' + cfg.CC_LIST.length + '명)' : '(없음)');
-  Logger.log('발송 시각   : 매일 %s시 (%s)', cfg.SEND_HOUR, cfg.WEEKDAYS_ONLY ? '주말 제외' : '주말 포함');
+  Logger.log('발송 시각   : 매일 %s시 (%s)', String(cfg.SEND_HOUR), cfg.WEEKDAYS_ONLY ? '주말 제외' : '주말 포함');
   Logger.log('자동 발송   : %s', handlers.indexOf('sendDailyLesson') >= 0 ? '켜짐' : '꺼짐 — setup을 실행하세요.');
   if (untilQuiz <= 0) {
-    Logger.log('다음 발송   : Day %s — 복습 퀴즈 (학습 메일 없음)', lesson.day);
+    Logger.log('다음 발송   : Day %s — 복습 퀴즈 (학습 메일 없음)', String(lesson.day));
   } else {
-    Logger.log('다음 발송   : Day %s (%s회차) — %s', lesson.day, lesson.lesson,
+    Logger.log('다음 발송   : Day %s (%s회차) — %s', String(lesson.day), String(lesson.lesson),
       lesson.blocks.map(function (b) { return b.entry.focus; }).join(' · '));
   }
   if (!cfg.QUIZ_ENABLED) {
@@ -210,9 +210,9 @@ function showStatus() {
   } else {
     Logger.log('복습 퀴즈   : %s · 저녁 %s시 · 학습 %s일마다 · %s',
       handlers.indexOf('sendQuizEmail') >= 0 ? '켜짐' : '트리거 없음 — setup을 실행하세요.',
-      cfg.QUIZ_HOUR, cfg.QUIZ_EVERY,
+      String(cfg.QUIZ_HOUR), String(cfg.QUIZ_EVERY),
       untilQuiz > 0 ? '학습 ' + untilQuiz + '일 더 하면 출제' : '오늘 저녁 출제');
-    Logger.log('출제 기록   : 지금까지 %s문항 출제됨 (같은 문항은 다시 나오지 않음)', askedCount);
+    Logger.log('출제 기록   : 지금까지 %s문항 출제됨 (같은 문항은 다시 나오지 않음)', String(askedCount));
   }
 }
 
@@ -239,14 +239,14 @@ function sendDailyLesson() {
 
   // 학습 3일치를 마친 날은 복습 퀴즈만 보낸다 (새 학습 없음).
   if (isQuizDue_(cfg)) {
-    Logger.log('Day %s는 복습 퀴즈 날입니다. 학습 메일은 보내지 않습니다.', day);
+    Logger.log('Day %s는 복습 퀴즈 날입니다. 학습 메일은 보내지 않습니다.', String(day));
     return;
   }
 
   var index = cfg.LESSON_INDEX;
   deliver_(cfg, index, now, day);
   props_().setProperty('LESSON_INDEX', String(index + 1));
-  Logger.log('Day %s 학습 메일 발송 완료 (%s회차)', day, index + 1);
+  Logger.log('Day %s 학습 메일 발송 완료 (%s회차)', String(day), String(index + 1));
 }
 
 /** 테스트 발송: 지금 바로 보내되 진도는 올리지 않는다. */
